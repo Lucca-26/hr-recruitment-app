@@ -1,270 +1,291 @@
 import numpy as np
 import pandas as pd
-from typing import Dict, List, Tuple
-from helpers.text_processor import preprocess_text, encode_text
-from helpers.data_loader import get_applicant_by_code, get_vaga_by_id, get_prospects_by_vaga
+from typing import List, Dict, Tuple, Any
+import streamlit as st
+from sklearn.metrics.pairwise import cosine_similarity
+from helpers.text_processor import encode_text, preprocess_text, extract_skills
 
 def calculate_cosine_similarity(vec1: np.ndarray, vec2: np.ndarray) -> float:
     """
-    Calcula a similaridade de cosseno entre dois vetores.
+    Calculate cosine similarity between two vectors.
     
     Args:
-        vec1: Primeiro vetor
-        vec2: Segundo vetor
+        vec1: First vector
+        vec2: Second vector
     
     Returns:
-        Pontuação de similaridade de cosseno entre 0 e 1
+        Cosine similarity score between 0 and 1
     """
-    dot_product = np.dot(vec1, vec2)
-    norm_a = np.linalg.norm(vec1)
-    norm_b = np.linalg.norm(vec2)
+    if vec1.ndim == 1:
+        vec1 = vec1.reshape(1, -1)
+    if vec2.ndim == 1:
+        vec2 = vec2.reshape(1, -1)
     
-    if norm_a == 0 or norm_b == 0:
-        return 0.0
-    
-    return dot_product / (norm_a * norm_b)
+    return cosine_similarity(vec1, vec2)[0][0]
 
 def calculate_skill_overlap(job_text: str, candidate_text: str) -> float:
     """
-    Calcula a sobreposição entre habilidades da vaga e habilidades do candidato.
+    Calculate the overlap between job skills and candidate skills.
     
     Args:
-        job_text: Texto descritivo da vaga ou requisitos
-        candidate_text: Texto do perfil ou currículo do candidato
+        job_text: Job description or requirements text
+        candidate_text: Candidate profile or resume text
     
     Returns:
-        Pontuação representando a sobreposição de habilidades entre 0 e 1
+        Score representing the overlap of skills between 0 and 1
     """
-    # Pré-processar textos
-    job_processed = preprocess_text(job_text)
-    candidate_processed = preprocess_text(candidate_text)
+    job_skills = set(extract_skills(job_text))
+    candidate_skills = set(extract_skills(candidate_text))
     
-    # Se algum texto estiver vazio, retorna 0
-    if not job_processed or not candidate_processed:
+    if not job_skills or not candidate_skills:
         return 0.0
     
-    # Dividir em palavras (simplificado)
-    job_words = set(job_processed.split())
-    candidate_words = set(candidate_processed.split())
+    # Calculate overlap
+    overlap = len(job_skills.intersection(candidate_skills))
+    denominator = len(job_skills)
     
-    # Calcular sobreposição
-    common_words = job_words.intersection(candidate_words)
-    
-    if not job_words:
+    if denominator == 0:
         return 0.0
     
-    # Pontuação baseada na proporção de palavras da vaga presentes no perfil do candidato
-    return len(common_words) / len(job_words)
+    return overlap / denominator
 
 def calculate_education_level_match(job_level: str, candidate_level: str) -> float:
     """
-    Calcula pontuação de match com base nos níveis de educação.
+    Calculate match score based on education levels.
     
     Args:
-        job_level: Nível de educação exigido para a vaga
-        candidate_level: Nível de educação do candidato
+        job_level: Required education level for the job
+        candidate_level: Candidate's education level
     
     Returns:
-        Pontuação de match educacional entre 0 e 1
+        Education match score between 0 and 1
     """
-    # Nivelar para comparação
-    job_level = job_level.lower() if job_level else ""
-    candidate_level = candidate_level.lower() if candidate_level else ""
-    
-    # Definir hierarquia de níveis educacionais
-    levels = {
-        'ensino médio': 1,
-        'técnico': 2,
-        'graduação': 3,
-        'superior': 3,
-        'pós-graduação': 4,
-        'especialização': 4,
-        'mba': 4,
-        'mestrado': 5,
-        'doutorado': 6,
-        'phd': 6
+    education_levels = {
+        'ensino fundamental': 1,
+        'ensino médio': 2,
+        'ensino médio completo': 2,
+        'ensino técnico': 3,
+        'ensino técnico completo': 3,
+        'ensino superior': 4,
+        'ensino superior cursando': 4,
+        'ensino superior incompleto': 4,
+        'ensino superior completo': 5,
+        'pós-graduação': 6,
+        'especialização': 6,
+        'mba': 6,
+        'mestrado': 7,
+        'doutorado': 8
     }
     
-    # Atribuir valores com base nas palavras-chave presentes
-    job_value = 0
-    candidate_value = 0
+    # Normalize inputs to lowercase
+    job_level_lower = job_level.lower() if isinstance(job_level, str) else ''
+    candidate_level_lower = candidate_level.lower() if isinstance(candidate_level, str) else ''
     
-    for level, value in levels.items():
-        if level in job_level:
-            job_value = max(job_value, value)
-        if level in candidate_level:
-            candidate_value = max(candidate_value, value)
+    # Get education level integers or default to 0
+    job_level_num = 0
+    candidate_level_num = 0
     
-    # Se não há requisito educacional, pontuação máxima
-    if job_value == 0:
+    for level, value in education_levels.items():
+        if level in job_level_lower:
+            job_level_num = value
+        if level in candidate_level_lower:
+            candidate_level_num = value
+    
+    # If no education requirement for job, return 1.0 (match)
+    if job_level_num == 0:
         return 1.0
     
-    # Se o candidato atende ou excede o requisito
-    if candidate_value >= job_value:
+    # If candidate meets or exceeds the job requirement
+    if candidate_level_num >= job_level_num:
         return 1.0
     
-    # Caso contrário, pontuação parcial
-    return candidate_value / job_value
+    # If candidate is below the requirement, partial match based on how close
+    return candidate_level_num / job_level_num if job_level_num > 0 else 0.0
 
 def calculate_language_match(job_language_level: str, candidate_language_level: str) -> float:
     """
-    Calcula pontuação de match com base nos níveis de proficiência em idiomas.
+    Calculate match score based on language proficiency levels.
     
     Args:
-        job_language_level: Nível de idioma exigido para a vaga
-        candidate_language_level: Nível de idioma do candidato
+        job_language_level: Required language level for the job
+        candidate_language_level: Candidate's language proficiency level
     
     Returns:
-        Pontuação de match de idioma entre 0 e 1
+        Language match score between 0 and 1
     """
-    # Nivelar para comparação
-    job_level = job_language_level.lower() if job_language_level else "não exigido"
-    candidate_level = candidate_language_level.lower() if candidate_language_level else "não possui"
-    
-    # Definir hierarquia de níveis de idioma
-    levels = {
-        'não exigido': 0,
-        'não possui': 0,
+    language_levels = {
+        'nenhum': 0,
         'básico': 1,
         'intermediário': 2,
         'avançado': 3,
         'fluente': 4
     }
     
-    # Atribuir valores com base nas palavras-chave presentes
-    job_value = 0
-    candidate_value = 0
+    # Normalize inputs to lowercase
+    job_level_lower = job_language_level.lower() if isinstance(job_language_level, str) else ''
+    candidate_level_lower = candidate_language_level.lower() if isinstance(candidate_language_level, str) else ''
     
-    for level, value in levels.items():
-        if level in job_level:
-            job_value = max(job_value, value)
-        if level in candidate_level:
-            candidate_value = max(candidate_value, value)
+    # Get language level integers or default to 0
+    job_level_num = 0
+    candidate_level_num = 0
     
-    # Se não há requisito de idioma, pontuação máxima
-    if job_value == 0:
+    for level, value in language_levels.items():
+        if level in job_level_lower:
+            job_level_num = value
+        if level in candidate_level_lower:
+            candidate_level_num = value
+    
+    # If no language requirement for job, return 1.0 (match)
+    if job_level_num == 0:
         return 1.0
     
-    # Se o candidato atende ou excede o requisito
-    if candidate_value >= job_value:
+    # If candidate meets or exceeds the job requirement
+    if candidate_level_num >= job_level_num:
         return 1.0
     
-    # Caso contrário, pontuação parcial
-    return candidate_value / job_value
+    # If candidate is below the requirement, partial match based on how close
+    return candidate_level_num / job_level_num if job_level_num > 0 else 0.0
 
 def calculate_similarity(job_data: pd.Series, candidate_data: pd.Series) -> Dict[str, float]:
     """
-    Calcula a similaridade geral entre uma vaga e um candidato.
+    Calculate overall similarity between a job and a candidate.
     
     Args:
-        job_data: Series contendo dados da vaga
-        candidate_data: Series contendo dados do candidato
+        job_data: Series containing job data
+        candidate_data: Series containing candidate data
     
     Returns:
-        Dicionário com pontuações de similaridade por categoria e pontuação geral
+        Dictionary with similarity scores by category and overall score
     """
-    # Extrair textos relevantes
-    job_description = " ".join([
-        str(job_data.get('titulo_vaga', '')),
-        str(job_data.get('areas_atuacao', '')),
-        str(job_data.get('principais_atividades', '')),
-        str(job_data.get('competencia_tecnicas', ''))
-    ])
+    # Handle missing values
+    job_description = job_data.get('descricao_completa', '')
+    if not isinstance(job_description, str):
+        job_description = ''
     
-    candidate_description = " ".join([
-        str(candidate_data.get('titulo_profissional', '')),
-        str(candidate_data.get('area_atuacao', '')),
-        str(candidate_data.get('conhecimentos_tecnicos', '')),
-        str(candidate_data.get('certificacoes', ''))
-    ])
+    candidate_profile = candidate_data.get('profile_text', '')
+    if not isinstance(candidate_profile, str):
+        candidate_profile = ''
     
-    # Calcular similaridade textual
+    # Calculate text similarity using embeddings
     job_vector = encode_text(job_description)
-    candidate_vector = encode_text(candidate_description)
+    candidate_vector = encode_text(candidate_profile)
     text_similarity = calculate_cosine_similarity(job_vector, candidate_vector)
     
-    # Calcular similaridade de competências
-    skill_match = calculate_skill_overlap(
-        job_data.get('competencia_tecnicas', ''),
-        candidate_data.get('conhecimentos_tecnicos', '')
-    )
+    # Calculate skill overlap
+    skill_match = calculate_skill_overlap(job_description, candidate_profile)
     
-    # Calcular match de formação acadêmica
+    # Obter valores garantindo que sejam strings
+    job_nivel_academico = job_data.get('nivel_academico', '')
+    if job_nivel_academico is None:
+        job_nivel_academico = ''
+        
+    candidate_nivel_academico = candidate_data.get('nivel_academic', '')
+    if candidate_nivel_academico is None:
+        candidate_nivel_academico = ''
+    
+    # Calculate education match
     education_match = calculate_education_level_match(
-        job_data.get('nivel_academico', ''),
-        candidate_data.get('nivel_academico', '')
+        job_nivel_academico, 
+        candidate_nivel_academico
     )
     
-    # Calcular match de inglês
+    # Obter valores garantindo que sejam strings
+    job_nivel_ingles = job_data.get('nivel_ingles', '')
+    if job_nivel_ingles is None:
+        job_nivel_ingles = ''
+        
+    candidate_nivel_ingles = candidate_data.get('nivel_ingles', '')
+    if candidate_nivel_ingles is None:
+        candidate_nivel_ingles = ''
+    
+    # Calculate English language match
     english_match = calculate_language_match(
-        job_data.get('nivel_ingles', 'não exigido'),
-        candidate_data.get('nivel_ingles', 'não possui')
+        job_nivel_ingles, 
+        candidate_nivel_ingles
     )
     
-    # Calcular match de espanhol
+    # Obter valores garantindo que sejam strings
+    job_nivel_espanhol = job_data.get('nivel_espanhol', '')
+    if job_nivel_espanhol is None:
+        job_nivel_espanhol = ''
+        
+    candidate_nivel_espanhol = candidate_data.get('nivel_espanhol', '')
+    if candidate_nivel_espanhol is None:
+        candidate_nivel_espanhol = ''
+    
+    # Calculate Spanish language match
     spanish_match = calculate_language_match(
-        job_data.get('nivel_espanhol', 'não exigido'),
-        candidate_data.get('nivel_espanhol', 'não possui')
+        job_nivel_espanhol, 
+        candidate_nivel_espanhol
     )
     
-    # Calcular pontuação geral (com pesos)
+    # Calculate overall match score with weights
     weights = {
         'text_similarity': 0.35,
         'skill_match': 0.35,
-        'education_match': 0.10,
-        'english_match': 0.10,
-        'spanish_match': 0.10
+        'education_match': 0.1,
+        'english_match': 0.1,
+        'spanish_match': 0.1
     }
     
-    overall_score = (
-        weights['text_similarity'] * text_similarity +
-        weights['skill_match'] * skill_match +
-        weights['education_match'] * education_match +
-        weights['english_match'] * english_match +
-        weights['spanish_match'] * spanish_match
-    )
-    
-    return {
-        'overall_score': overall_score,
+    scores = {
         'text_similarity': text_similarity,
         'skill_match': skill_match,
         'education_match': education_match,
         'english_match': english_match,
         'spanish_match': spanish_match
     }
+    
+    overall_score = sum(score * weights[category] for category, score in scores.items())
+    scores['overall_score'] = overall_score
+    
+    return scores
 
 def find_matching_candidates(vagas_df: pd.DataFrame, applicants_df: pd.DataFrame, vaga_id: str, 
-                             top_n: int = 10) -> pd.DataFrame:
+                            top_n: int = 10) -> pd.DataFrame:
     """
-    Encontra os top N candidatos mais adequados para uma vaga específica.
+    Find the top N candidates matching a specific job.
     
     Args:
-        vagas_df: DataFrame com vagas
-        applicants_df: DataFrame com dados de candidatos
-        vaga_id: ID da vaga para correspondência
-        top_n: Número de candidatos principais a retornar
+        vagas_df: DataFrame with job vacancies
+        applicants_df: DataFrame with applicant data
+        vaga_id: ID of the job vacancy to match against
+        top_n: Number of top candidates to return
     
     Returns:
-        DataFrame com candidatos principais e suas pontuações
+        DataFrame with top matching candidates and their scores
     """
-    # Obter dados da vaga
-    job_series = vagas_df[vagas_df['vaga_id'] == vaga_id].iloc[0]
+    # Get job data
+    job_data = vagas_df[vagas_df['vaga_id'] == vaga_id]
+    if job_data.empty:
+        return pd.DataFrame()
     
-    # Calcular similaridade para cada candidato
+    job_series = job_data.iloc[0]
+    
+    # Calculate similarity for each candidate
     results = []
     
-    for _, candidate in applicants_df.iterrows():
-        # Calcular similaridade
+    # Use a subset of candidates for better performance if the dataset is large
+    candidates_sample = applicants_df if len(applicants_df) < 1000 else applicants_df.sample(1000)
+    
+    for index, candidate in candidates_sample.iterrows():
+        candidate_dict = {}
+        # Convertendo pandas.Series para dict para evitar erros do tipo
+        if hasattr(candidate, 'to_dict'):
+            candidate_dict = candidate.to_dict()
+        else:
+            for col in applicants_df.columns:
+                candidate_dict[col] = candidate.get(col, '')
+                
         similarity_scores = calculate_similarity(job_series, candidate)
         
-        # Adicionar dados do candidato e pontuações ao resultado
-        candidate_data = {
-            'codigo': candidate['codigo_profissional'],
-            'nome': candidate['nome_profissional'],
-            'area_atuacao': candidate['area_atuacao'],
-            'nivel_academico': candidate['nivel_academico'],
-            'nivel_ingles': candidate['nivel_ingles'],
-            'nivel_espanhol': candidate['nivel_espanhol'],
+        result = {
+            'codigo': candidate_dict.get('codigo_profissional', ''),
+            'nome': candidate_dict.get('nome', ''),
+            'area_atuacao': candidate_dict.get('area_atuacao', ''),
+            'nivel_academico': candidate_dict.get('nivel_academic', ''),
+            'nivel_ingles': candidate_dict.get('nivel_ingles', ''),
+            'nivel_espanhol': candidate_dict.get('nivel_espanhol', ''),
             'overall_score': similarity_scores['overall_score'],
             'text_similarity': similarity_scores['text_similarity'],
             'skill_match': similarity_scores['skill_match'],
@@ -272,93 +293,124 @@ def find_matching_candidates(vagas_df: pd.DataFrame, applicants_df: pd.DataFrame
             'english_match': similarity_scores['english_match'],
             'spanish_match': similarity_scores['spanish_match']
         }
-        
-        results.append(candidate_data)
+        results.append(result)
     
-    # Criar DataFrame e ordenar por pontuação geral
-    if results:
-        result_df = pd.DataFrame(results)
-        result_df = result_df.sort_values('overall_score', ascending=False)
-        
-        # Limitar para os top N candidatos
-        if len(result_df) > top_n:
-            result_df = result_df.head(top_n)
-        
-        return result_df
-    else:
-        # Retornar DataFrame vazio se não houver resultados
-        return pd.DataFrame()
+    # Create DataFrame and sort by overall score
+    results_df = pd.DataFrame(results) if results else pd.DataFrame()
+    
+    if not results_df.empty:
+        results_df = results_df.sort_values('overall_score', ascending=False)
+        if top_n > 0:
+            results_df = results_df.head(top_n)
+    
+    return results_df
 
 def get_candidates_by_vaga(vagas_df: pd.DataFrame, prospects_df: pd.DataFrame, applicants_df: pd.DataFrame, 
-                           vaga_id: str, include_scores: bool = True) -> pd.DataFrame:
+                          vaga_id: str, include_scores: bool = True) -> pd.DataFrame:
     """
-    Obtém todos os candidatos que se candidataram a uma vaga específica com pontuações de similaridade.
+    Get all candidates who have applied for a specific job vacancy with similarity scores.
     
     Args:
-        vagas_df: DataFrame com vagas
-        prospects_df: DataFrame com dados de prospectos
-        applicants_df: DataFrame com dados de candidatos
-        vaga_id: ID da vaga para obter candidatos
-        include_scores: Se deve incluir pontuações de similaridade
+        vagas_df: DataFrame with job vacancies
+        prospects_df: DataFrame with prospect data
+        applicants_df: DataFrame with applicant data
+        vaga_id: ID of the job vacancy to get candidates for
+        include_scores: Whether to include similarity scores
     
     Returns:
-        DataFrame com candidatos e suas informações
+        DataFrame with candidates and their information
     """
-    # Obter prospectos para a vaga
-    vaga_prospects = prospects_df[prospects_df['vaga_id'] == vaga_id]
-    
-    if vaga_prospects.empty:
+    # Get job data
+    job_data = vagas_df[vagas_df['vaga_id'] == vaga_id]
+    if job_data.empty:
         return pd.DataFrame()
     
-    # Obter dados da vaga
-    job_series = vagas_df[vagas_df['vaga_id'] == vaga_id].iloc[0]
+    job_series = job_data.iloc[0]
     
-    # Preparar resultados
+    # Get prospects for this job
+    job_prospects = prospects_df[prospects_df['vaga_id'] == vaga_id]
+    
+    if job_prospects.empty:
+        return pd.DataFrame()
+    
+    # Get candidate codes and convert to list (avoiding .unique() on series)
+    # This é uma alternativa ao .unique() para evitar erros de tipo
+    prospect_codes = list(set(job_prospects['codigo'].tolist()))
+    
+    # Get candidate information
     results = []
+    for code in prospect_codes:
+        # Find candidate in applicants data
+        candidate_data = applicants_df[applicants_df['codigo_profissional'] == code]
+        if candidate_data.empty:
+            # If candidate not found in applicants data, use prospect data
+            prospect_matches = job_prospects[job_prospects['codigo'] == code]
+            if prospect_matches.empty:
+                continue
+                
+            prospect_data = prospect_matches.iloc[0]
+            prospect_dict = prospect_data.to_dict() if hasattr(prospect_data, 'to_dict') else {}
+                
+            candidate = {
+                'codigo': code,
+                'nome': prospect_dict.get('nome', ''),
+                'area_atuacao': '',
+                'situacao': prospect_dict.get('situacao_candidado', ''),
+                'data_candidatura': prospect_dict.get('data_candidatura', ''),
+                'recrutador': prospect_dict.get('recrutador', '')
+            }
+            
+            if include_scores:
+                candidate.update({
+                    'overall_score': 0,
+                    'text_similarity': 0,
+                    'skill_match': 0,
+                    'education_match': 0,
+                    'english_match': 0,
+                    'spanish_match': 0
+                })
+        else:
+            # Use applicant data
+            candidate_series = candidate_data.iloc[0]
+            prospect_matches = job_prospects[job_prospects['codigo'] == code]
+            if prospect_matches.empty:
+                continue
+                
+            prospect_data = prospect_matches.iloc[0]
+            candidate_dict = candidate_series.to_dict() if hasattr(candidate_series, 'to_dict') else {}
+            prospect_dict = prospect_data.to_dict() if hasattr(prospect_data, 'to_dict') else {}
+            
+            candidate = {
+                'codigo': code,
+                'nome': candidate_dict.get('nome', ''),
+                'area_atuacao': candidate_dict.get('area_atuacao', ''),
+                'nivel_academico': candidate_dict.get('nivel_academic', ''),
+                'nivel_ingles': candidate_dict.get('nivel_ingles', ''),
+                'nivel_espanhol': candidate_dict.get('nivel_espanhol', ''),
+                'situacao': prospect_dict.get('situacao_candidado', ''),
+                'data_candidatura': prospect_dict.get('data_candidatura', ''),
+                'recrutador': prospect_dict.get('recrutador', '')
+            }
+            
+            if include_scores:
+                # Calculate similarity scores
+                similarity_scores = calculate_similarity(job_series, candidate_series)
+                candidate.update({
+                    'overall_score': similarity_scores['overall_score'],
+                    'text_similarity': similarity_scores['text_similarity'],
+                    'skill_match': similarity_scores['skill_match'],
+                    'education_match': similarity_scores['education_match'],
+                    'english_match': similarity_scores['english_match'],
+                    'spanish_match': similarity_scores['spanish_match']
+                })
+        
+        results.append(candidate)
     
-    for _, prospect in vaga_prospects.iterrows():
-        # Obter dados do candidato
-        candidate_code = prospect['codigo']
-        candidate_row = applicants_df[applicants_df['codigo_profissional'] == candidate_code]
-        
-        if candidate_row.empty:
-            continue
-        
-        candidate = candidate_row.iloc[0]
-        
-        # Base de dados do candidato
-        candidate_data = {
-            'codigo': candidate['codigo_profissional'],
-            'nome': candidate['nome_profissional'],
-            'area_atuacao': candidate['area_atuacao'],
-            'nivel_academico': candidate['nivel_academico'],
-            'nivel_ingles': candidate['nivel_ingles'],
-            'nivel_espanhol': candidate['nivel_espanhol'],
-            'situacao': prospect['situacao_candidado'],
-            'data_candidatura': prospect['data_candidatura'],
-            'recrutador': prospect.get('recrutador', '')
-        }
-        
-        # Adicionar pontuações se solicitado
-        if include_scores:
-            similarity_scores = calculate_similarity(job_series, candidate)
-            candidate_data.update({
-                'overall_score': similarity_scores['overall_score'],
-                'text_similarity': similarity_scores['text_similarity'],
-                'skill_match': similarity_scores['skill_match'],
-                'education_match': similarity_scores['education_match'],
-                'english_match': similarity_scores['english_match'],
-                'spanish_match': similarity_scores['spanish_match']
-            })
-        
-        results.append(candidate_data)
+    # Create DataFrame and sort by status and score if scores included
+    results_df = pd.DataFrame(results) if results else pd.DataFrame()
     
-    # Criar DataFrame e ordenar
-    if results:
-        result_df = pd.DataFrame(results)
-        if include_scores and 'overall_score' in result_df.columns:
-            result_df = result_df.sort_values('overall_score', ascending=False)
-        return result_df
-    else:
-        # Retornar DataFrame vazio se não houver resultados
-        return pd.DataFrame()
+    if not results_df.empty:
+        if include_scores and 'overall_score' in results_df.columns:
+            results_df = results_df.sort_values(['situacao', 'overall_score'], ascending=[True, False])
+    
+    return results_df
