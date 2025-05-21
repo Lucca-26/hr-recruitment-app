@@ -15,10 +15,10 @@ def load_data() -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
         - prospects_df: DataFrame with prospect data
         - applicants_df: DataFrame with applicant data
     """
-    # Define file paths (adjust as needed)
-    vagas_path = 'attached_assets/vagas.json'
-    prospects_path = 'attached_assets/prospects (1).json'
-    applicants_path = 'attached_assets/applicants (1).csv'
+# Define file paths (adjust as needed)
+vagas_path = 'C:/Users/HomePC/OneDrive/Pós_FIAP/Fase_5_Fiap/hr-recruitment-app/vagas.json'
+prospects_path = 'C:/Users/HomePC/OneDrive/Pós_FIAP/Fase_5_Fiap/hr-recruitment-app/prospects.json'
+applicants_path = 'C:/Users/HomePC/OneDrive/Pós_FIAP/Fase_5_Fiap/hr-recruitment-app/applicants.csv'
     
     # Load vagas.json (job vacancies)
     with open(vagas_path, 'r', encoding='utf-8') as file:
