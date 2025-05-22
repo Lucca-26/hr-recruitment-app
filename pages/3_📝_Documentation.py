@@ -114,3 +114,7 @@ Alternativamente, você pode:
 ## Passo a Passo para Rodar Localmente
 
 1. Clone o repositório:
+```bash
+git clone https://github.com/Lucca-26/hr-recruitment-app.git
+cd hr-recruitment-app
+""")
