@@ -36,7 +36,7 @@ A Decision oferece serviços em Gestão de Recursos Humanos, atuando em Tecnolog
 
 ## 🎬 Demonstração
 
-A aplicação está disponível online em: [https://hr-recruitment-app.streamlit.app](https://hr-recruitment-app.streamlit.app)
+A aplicação está disponível online em: [https://hr-recruitment-app-z.streamlit.app](https://hr-recruitment-app-z.streamlit.app)
 
 ![HR Recruitment App Screenshot](screenshot.png)
 
@@ -51,7 +51,7 @@ A aplicação está disponível online em: [https://hr-recruitment-app.streamlit
 
 ```bash
 # Clone o repositório
-git clone https://github.com/seu-usuario/hr-recruitment-app.git
+git clone https://github.com/Lucca-26/hr-recruitment-app.git
 cd hr-recruitment-app
 
 # Crie e ative um ambiente virtual
@@ -83,8 +83,30 @@ Após estes comandos, a aplicação estará disponível em:
 
 1. **Prepare seu repositório**:
    - Certifique-se de que seu repositório contém todos os arquivos necessários
-   - Verifique se `requirements.txt` está atualizado
-   - Confirme se `.streamlit/config.toml` está configurado corretamente
+   - Crie um arquivo `requirements.txt` com o seguinte conteúdo:
+     ```
+     streamlit>=1.30.0
+     pandas>=2.0.0
+     numpy>=1.24.0
+     nltk>=3.8.1
+     scikit-learn>=1.3.0
+     plotly>=5.14.0
+     ```
+   - Atualize o arquivo `.streamlit/config.toml` para usar a porta 8501:
+     ```
+     [server]
+     headless = true
+     enableCORS = true
+     address = "0.0.0.0"
+     port = 8501
+     
+     [theme]
+     primaryColor = "#005F9E"
+     backgroundColor = "#FFFFFF"
+     secondaryBackgroundColor = "#F0F2F6"
+     textColor = "#262730"
+     font = "sans serif"
+     ```
 
 2. **Crie uma conta Streamlit Cloud**:
    - Acesse [Streamlit Cloud](https://streamlit.io/cloud)
@@ -97,10 +119,13 @@ Após estes comandos, a aplicação estará disponível em:
    - Defina "Main file path" como "app.py"
    - Clique em "Deploy"
 
-4. **Configurações avançadas (opcional)**:
-   - Configure segredos, se necessário
-   - Defina recursos de computação
-   - Configure domínio personalizado
+4. **Solução de problemas comuns**:
+   - Se encontrar erro "connection refused", verifique se a porta está configurada como 8501
+   - Se tiver problemas com recursos NLTK, adicione um comando de inicialização:
+     ```
+     python -m nltk.downloader punkt stopwords
+     ```
+   - Se o app não carregar os dados, verifique se os arquivos de dados estão no repositório
 
 5. **Acesse seu app**:
    - Após a implantação, seu app estará disponível em uma URL como:
