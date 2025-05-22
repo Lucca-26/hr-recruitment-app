@@ -1,416 +1,385 @@
-import numpy as np
-import pandas as pd
-from typing import List, Dict, Tuple, Any
 import streamlit as st
-from sklearn.metrics.pairwise import cosine_similarity
-from helpers.text_processor import encode_text, preprocess_text, extract_skills
+import pandas as pd
+import numpy as np
+import plotly.express as px
+import plotly.graph_objects as go
+from datetime import datetime
+from helpers.data_loader import load_data
 
-def calculate_cosine_similarity(vec1: np.ndarray, vec2: np.ndarray) -> float:
-    """
-    Calculate cosine similarity between two vectors.
-    
-    Args:
-        vec1: First vector
-        vec2: Second vector
-    
-    Returns:
-        Cosine similarity score between 0 and 1
-    """
-    if vec1.ndim == 1:
-        vec1 = vec1.reshape(1, -1)
-    if vec2.ndim == 1:
-        vec2 = vec2.reshape(1, -1)
-    
-    return cosine_similarity(vec1, vec2)[0][0]
+# Set page configuration
+st.set_page_config(
+    page_title="HR Match - Analytics",
+    page_icon="📊",
+    layout="wide"
+)
 
-def calculate_skill_overlap(job_text: str, candidate_text: str) -> float:
-    """
-    Calculate the overlap between job skills and candidate skills.
-    
-    Args:
-        job_text: Job description or requirements text
-        candidate_text: Candidate profile or resume text
-    
-    Returns:
-        Score representing the overlap of skills between 0 and 1
-    """
-    job_skills = set(extract_skills(job_text))
-    candidate_skills = set(extract_skills(candidate_text))
-    
-    if not job_skills or not candidate_skills:
-        return 0.0
-    
-    # Calculate overlap
-    overlap = len(job_skills.intersection(candidate_skills))
-    denominator = len(job_skills)
-    
-    if denominator == 0:
-        return 0.0
-    
-    return overlap / denominator
+# Logo da Decision estilizado
+st.markdown("""
+    <div style="display: flex; justify-content: center; margin-bottom: 20px;">
+        <div style="text-align: center; background: linear-gradient(135deg, #005F9E 0%, #00417A 100%); color: white; padding: 15px; border-radius: 8px; width: 300px; box-shadow: 0 3px 6px rgba(0,0,0,0.16); user-select: none;">
+            <h1 style="margin: 0; font-size: 36px; font-weight: 700; letter-spacing: 1px;">DECISION</h1>
+            <p style="margin: 5px 0 0 0; font-size: 14px; opacity: 0.9;">Gestão de Recursos Humanos</p>
+        </div>
+    </div>
+""", unsafe_allow_html=True)
 
-def calculate_education_level_match(job_level: str, candidate_level: str) -> float:
-    """
-    Calculate match score based on education levels.
-    
-    Args:
-        job_level: Required education level for the job
-        candidate_level: Candidate's education level
-    
-    Returns:
-        Education match score between 0 and 1
-    """
-    education_levels = {
-        'ensino fundamental': 1,
-        'ensino médio': 2,
-        'ensino médio completo': 2,
-        'ensino técnico': 3,
-        'ensino técnico completo': 3,
-        'ensino superior': 4,
-        'ensino superior cursando': 4,
-        'ensino superior incompleto': 4,
-        'ensino superior completo': 5,
-        'pós-graduação': 6,
-        'especialização': 6,
-        'mba': 6,
-        'mestrado': 7,
-        'doutorado': 8
-    }
-    
-    # Normalize inputs to lowercase
-    job_level_lower = job_level.lower() if isinstance(job_level, str) else ''
-    candidate_level_lower = candidate_level.lower() if isinstance(candidate_level, str) else ''
-    
-    # Get education level integers or default to 0
-    job_level_num = 0
-    candidate_level_num = 0
-    
-    for level, value in education_levels.items():
-        if level in job_level_lower:
-            job_level_num = value
-        if level in candidate_level_lower:
-            candidate_level_num = value
-    
-    # If no education requirement for job, return 1.0 (match)
-    if job_level_num == 0:
-        return 1.0
-    
-    # If candidate meets or exceeds the job requirement
-    if candidate_level_num >= job_level_num:
-        return 1.0
-    
-    # If candidate is below the requirement, partial match based on how close
-    return candidate_level_num / job_level_num if job_level_num > 0 else 0.0
+st.title("📊 Analytics")
+st.markdown("### Visualize estatísticas e insights sobre o processo de recrutamento")
 
-def calculate_language_match(job_language_level: str, candidate_language_level: str) -> float:
-    """
-    Calculate match score based on language proficiency levels.
-    
-    Args:
-        job_language_level: Required language level for the job
-        candidate_language_level: Candidate's language proficiency level
-    
-    Returns:
-        Language match score between 0 and 1
-    """
-    language_levels = {
-        'nenhum': 0,
-        'básico': 1,
-        'intermediário': 2,
-        'avançado': 3,
-        'fluente': 4
-    }
-    
-    # Normalize inputs to lowercase
-    job_level_lower = job_language_level.lower() if isinstance(job_language_level, str) else ''
-    candidate_level_lower = candidate_language_level.lower() if isinstance(candidate_language_level, str) else ''
-    
-    # Get language level integers or default to 0
-    job_level_num = 0
-    candidate_level_num = 0
-    
-    for level, value in language_levels.items():
-        if level in job_level_lower:
-            job_level_num = value
-        if level in candidate_level_lower:
-            candidate_level_num = value
-    
-    # If no language requirement for job, return 1.0 (match)
-    if job_level_num == 0:
-        return 1.0
-    
-    # If candidate meets or exceeds the job requirement
-    if candidate_level_num >= job_level_num:
-        return 1.0
-    
-    # If candidate is below the requirement, partial match based on how close
-    return candidate_level_num / job_level_num if job_level_num > 0 else 0.0
+# Initialize session state for data if not already done
+if 'data_loaded' not in st.session_state:
+    with st.spinner("Carregando dados... Por favor, aguarde."):
+        try:
+            vagas_df, prospects_df, applicants_df = load_data()
+            st.session_state['vagas_df'] = vagas_df
+            st.session_state['prospects_df'] = prospects_df
+            st.session_state['applicants_df'] = applicants_df
+            st.session_state['data_loaded'] = True
+        except Exception as e:
+            st.error(f"Erro ao carregar os dados: {e}")
+else:
+    vagas_df = st.session_state['vagas_df']
+    prospects_df = st.session_state['prospects_df']
+    applicants_df = st.session_state['applicants_df']
 
-def calculate_similarity(job_data: pd.Series, candidate_data: pd.Series) -> Dict[str, float]:
-    """
-    Calculate overall similarity between a job and a candidate.
+# Create tabs for analytics sections
+tab1, tab2, tab3 = st.tabs(["Visão Geral", "Análise de Vagas", "Análise de Candidatos"])
+
+with tab1:
+    st.markdown("### Visão Geral do Processo de Recrutamento")
     
-    Args:
-        job_data: Series containing job data
-        candidate_data: Series containing candidate data
+    # Key metrics
+    col1, col2, col3, col4 = st.columns(4)
     
-    Returns:
-        Dictionary with similarity scores by category and overall score
-    """
-    # Handle missing values
-    job_description = job_data.get('descricao_completa', '')
-    if not isinstance(job_description, str):
-        job_description = ''
+    with col1:
+        st.metric(
+            label="Total de Vagas",
+            value=len(vagas_df)
+        )
     
-    candidate_profile = candidate_data.get('profile_text', '')
-    if not isinstance(candidate_profile, str):
-        candidate_profile = ''
+    with col2:
+        st.metric(
+            label="Total de Candidatos",
+            value=len(applicants_df)
+        )
     
-    # Calculate text similarity using embeddings
-    job_vector = encode_text(job_description)
-    candidate_vector = encode_text(candidate_profile)
-    text_similarity = calculate_cosine_similarity(job_vector, candidate_vector)
+    with col3:
+        st.metric(
+            label="Total de Prospectos",
+            value=len(prospects_df)
+        )
     
-    # Calculate skill overlap
-    skill_match = calculate_skill_overlap(job_description, candidate_profile)
+    with col4:
+        # Count unique prospects
+        unique_prospects = prospects_df['codigo'].nunique()
+        st.metric(
+            label="Candidatos em Processo",
+            value=unique_prospects
+        )
     
-    # Obter valores garantindo que sejam strings
-    job_nivel_academico = job_data.get('nivel_academico', '')
-    if job_nivel_academico is None:
-        job_nivel_academico = ''
+    # Process status distribution
+    if not prospects_df.empty:
+        # Count status occurrences
+        status_counts = prospects_df['situacao_candidado'].value_counts().reset_index()
+        status_counts.columns = ['Situação', 'Contagem']
         
-    candidate_nivel_academico = candidate_data.get('nivel_academic', '')
-    if candidate_nivel_academico is None:
-        candidate_nivel_academico = ''
+        # Create horizontal bar chart
+        fig = px.bar(
+            status_counts,
+            y='Situação',
+            x='Contagem',
+            orientation='h',
+            title='Distribuição de Status dos Candidatos',
+            labels={'Contagem': 'Número de Candidatos', 'Situação': 'Status'},
+            color='Contagem',
+            color_continuous_scale=px.colors.sequential.Blues
+        )
+        
+        st.plotly_chart(fig)
     
-    # Calculate education match
-    education_match = calculate_education_level_match(
-        job_nivel_academico, 
-        candidate_nivel_academico
+    # Time series of applications
+    if not prospects_df.empty and 'data_candidatura' in prospects_df.columns:
+        # Convert date strings to datetime
+        prospects_df['data_candidatura_dt'] = pd.to_datetime(
+            prospects_df['data_candidatura'], 
+            format='%d-%m-%Y', 
+            errors='coerce'
+        )
+        
+        # Group by date and count
+        time_series = prospects_df.groupby(
+            prospects_df['data_candidatura_dt'].dt.to_period('M')
+        ).size().reset_index()
+        
+        time_series.columns = ['Mês', 'Candidaturas']
+        time_series['Mês'] = time_series['Mês'].astype(str)
+        
+        # Create line chart
+        fig = px.line(
+            time_series,
+            x='Mês',
+            y='Candidaturas',
+            title='Volume de Candidaturas por Mês',
+            labels={'Candidaturas': 'Número de Candidaturas', 'Mês': 'Mês'},
+            markers=True
+        )
+        
+        st.plotly_chart(fig)
+
+with tab2:
+    st.markdown("### Análise de Vagas")
+    
+    if not vagas_df.empty:
+        # Distribution of job vacancies by area
+        if 'areas_atuacao' in vagas_df.columns:
+            # Split and count areas
+            areas = vagas_df['areas_atuacao'].str.split('-').explode().str.strip()
+            area_counts = areas.value_counts().head(10).reset_index()
+            area_counts.columns = ['Área', 'Contagem']
+            
+            # Create horizontal bar chart
+            fig = px.bar(
+                area_counts,
+                y='Área',
+                x='Contagem',
+                orientation='h',
+                title='Top 10 Áreas de Atuação das Vagas',
+                labels={'Contagem': 'Número de Vagas', 'Área': 'Área de Atuação'},
+                color='Contagem',
+                color_continuous_scale=px.colors.sequential.Greens
+            )
+            
+            st.plotly_chart(fig)
+        
+        # Distribution of job vacancies by location
+        if 'estado' in vagas_df.columns and 'cidade' in vagas_df.columns:
+            # Create a location column
+            vagas_df['localização'] = vagas_df['cidade'] + ', ' + vagas_df['estado']
+            
+            # Count vacancies by location
+            location_counts = vagas_df['localização'].value_counts().head(10).reset_index()
+            location_counts.columns = ['Localização', 'Contagem']
+            
+            # Create horizontal bar chart
+            fig = px.bar(
+                location_counts,
+                y='Localização',
+                x='Contagem',
+                orientation='h',
+                title='Top 10 Localizações das Vagas',
+                labels={'Contagem': 'Número de Vagas', 'Localização': 'Localização'},
+                color='Contagem',
+                color_continuous_scale=px.colors.sequential.Purples
+            )
+            
+            st.plotly_chart(fig)
+        
+        # Distribution of job vacancies by academic level
+        if 'nivel_academico' in vagas_df.columns:
+            # Count vacancies by academic level
+            academic_counts = vagas_df['nivel_academico'].value_counts().reset_index()
+            academic_counts.columns = ['Nível Acadêmico', 'Contagem']
+            
+            # Create pie chart
+            fig = px.pie(
+                academic_counts,
+                values='Contagem',
+                names='Nível Acadêmico',
+                title='Distribuição de Vagas por Nível Acadêmico'
+            )
+            
+            st.plotly_chart(fig)
+        
+        # Distribution of job vacancies by English level
+        if 'nivel_ingles' in vagas_df.columns:
+            # Count vacancies by English level
+            english_counts = vagas_df['nivel_ingles'].value_counts().reset_index()
+            english_counts.columns = ['Nível de Inglês', 'Contagem']
+            
+            # Create pie chart
+            fig = px.pie(
+                english_counts,
+                values='Contagem',
+                names='Nível de Inglês',
+                title='Distribuição de Vagas por Nível de Inglês'
+            )
+            
+            st.plotly_chart(fig)
+
+with tab3:
+    st.markdown("### Análise de Candidatos")
+    
+    if not applicants_df.empty:
+        # Distribution of candidates by area
+        if 'area_atuacao' in applicants_df.columns:
+            # Split and count areas
+            applicants_df['area_atuacao'] = applicants_df['area_atuacao'].astype(str)
+            areas = applicants_df['area_atuacao'].str.split(',').explode().str.strip()
+            area_counts = areas.value_counts().head(10).reset_index()
+            area_counts.columns = ['Área', 'Contagem']
+            
+            # Create horizontal bar chart
+            fig = px.bar(
+                area_counts,
+                y='Área',
+                x='Contagem',
+                orientation='h',
+                title='Top 10 Áreas de Atuação dos Candidatos',
+                labels={'Contagem': 'Número de Candidatos', 'Área': 'Área de Atuação'},
+                color='Contagem',
+                color_continuous_scale=px.colors.sequential.Reds
+            )
+            
+            st.plotly_chart(fig)
+        
+        # Distribution of candidates by academic level
+        if 'nivel_academic' in applicants_df.columns:
+            # Count candidates by academic level
+            academic_counts = applicants_df['nivel_academic'].value_counts().reset_index()
+            academic_counts.columns = ['Nível Acadêmico', 'Contagem']
+            
+            # Create pie chart
+            fig = px.pie(
+                academic_counts,
+                values='Contagem',
+                names='Nível Acadêmico',
+                title='Distribuição de Candidatos por Nível Acadêmico'
+            )
+            
+            st.plotly_chart(fig)
+        
+        # Distribution of candidates by English level
+        if 'nivel_ingles' in applicants_df.columns:
+            # Count candidates by English level
+            english_counts = applicants_df['nivel_ingles'].value_counts().reset_index()
+            english_counts.columns = ['Nível de Inglês', 'Contagem']
+            
+            # Create pie chart
+            fig = px.pie(
+                english_counts,
+                values='Contagem',
+                names='Nível de Inglês',
+                title='Distribuição de Candidatos por Nível de Inglês'
+            )
+            
+            st.plotly_chart(fig)
+    
+    # Process duration analysis
+    if not prospects_df.empty and 'data_candidatura' in prospects_df.columns and 'ultima_atualizacao' in prospects_df.columns:
+        # Convert date strings to datetime
+        prospects_df['data_candidatura_dt'] = pd.to_datetime(
+            prospects_df['data_candidatura'], 
+            format='%d-%m-%Y', 
+            errors='coerce'
+        )
+        
+        prospects_df['ultima_atualizacao_dt'] = pd.to_datetime(
+            prospects_df['ultima_atualizacao'], 
+            format='%d-%m-%Y', 
+            errors='coerce'
+        )
+        
+        # Calculate duration in days
+        prospects_df['duration'] = (
+            prospects_df['ultima_atualizacao_dt'] - prospects_df['data_candidatura_dt']
+        ).dt.days
+        
+        # Filter valid durations
+        valid_duration = prospects_df[prospects_df['duration'] >= 0]
+        
+        if not valid_duration.empty:
+            # Group by status and calculate average duration
+            duration_by_status = valid_duration.groupby('situacao_candidado')['duration'].mean().reset_index()
+            duration_by_status.columns = ['Status', 'Duração Média (dias)']
+            
+            # Create horizontal bar chart
+            fig = px.bar(
+                duration_by_status,
+                y='Status',
+                x='Duração Média (dias)',
+                orientation='h',
+                title='Duração Média do Processo por Status (dias)',
+                labels={'Duração Média (dias)': 'Dias', 'Status': 'Status'},
+                color='Duração Média (dias)',
+                color_continuous_scale=px.colors.sequential.Oranges
+            )
+            
+            st.plotly_chart(fig)
+
+# Add filters and download options
+st.sidebar.markdown("## Filtros")
+
+# Date range filter for prospects
+if not prospects_df.empty and 'data_candidatura' in prospects_df.columns:
+    prospects_df['data_candidatura_dt'] = pd.to_datetime(
+        prospects_df['data_candidatura'], 
+        format='%d-%m-%Y', 
+        errors='coerce'
     )
     
-    # Obter valores garantindo que sejam strings
-    job_nivel_ingles = job_data.get('nivel_ingles', '')
-    if job_nivel_ingles is None:
-        job_nivel_ingles = ''
-        
-    candidate_nivel_ingles = candidate_data.get('nivel_ingles', '')
-    if candidate_nivel_ingles is None:
-        candidate_nivel_ingles = ''
+    min_date = prospects_df['data_candidatura_dt'].min().date()
+    max_date = prospects_df['data_candidatura_dt'].max().date()
     
-    # Calculate English language match
-    english_match = calculate_language_match(
-        job_nivel_ingles, 
-        candidate_nivel_ingles
+    date_range = st.sidebar.date_input(
+        "Período de Candidatura",
+        value=(min_date, max_date),
+        min_value=min_date,
+        max_value=max_date
     )
     
-    # Obter valores garantindo que sejam strings
-    job_nivel_espanhol = job_data.get('nivel_espanhol', '')
-    if job_nivel_espanhol is None:
-        job_nivel_espanhol = ''
+    if len(date_range) == 2:
+        start_date, end_date = date_range
+        filtered_prospects = prospects_df[
+            (prospects_df['data_candidatura_dt'].dt.date >= start_date) & 
+            (prospects_df['data_candidatura_dt'].dt.date <= end_date)
+        ]
         
-    candidate_nivel_espanhol = candidate_data.get('nivel_espanhol', '')
-    if candidate_nivel_espanhol is None:
-        candidate_nivel_espanhol = ''
+        st.sidebar.markdown(f"**Candidaturas no período:** {len(filtered_prospects)}")
+
+# Status filter
+if not prospects_df.empty and 'situacao_candidado' in prospects_df.columns:
+    all_statuses = ['Todos'] + sorted(prospects_df['situacao_candidado'].unique().tolist())
+    selected_status = st.sidebar.selectbox("Status do Candidato", all_statuses)
     
-    # Calculate Spanish language match
-    spanish_match = calculate_language_match(
-        job_nivel_espanhol, 
-        candidate_nivel_espanhol
+    if selected_status != 'Todos':
+        status_counts = prospects_df[prospects_df['situacao_candidado'] == selected_status].shape[0]
+        st.sidebar.markdown(f"**Candidatos com status '{selected_status}':** {status_counts}")
+
+# Download options
+st.sidebar.markdown("## Download de Dados")
+
+# Download vacancies
+if not vagas_df.empty:
+    csv_vagas = vagas_df.to_csv(index=False)
+    st.sidebar.download_button(
+        label="Baixar Vagas (CSV)",
+        data=csv_vagas,
+        file_name="vagas_data.csv",
+        mime="text/csv"
     )
-    
-    # Calculate overall match score with weights
-    weights = {
-        'text_similarity': 0.35,
-        'skill_match': 0.35,
-        'education_match': 0.1,
-        'english_match': 0.1,
-        'spanish_match': 0.1
-    }
-    
-    scores = {
-        'text_similarity': text_similarity,
-        'skill_match': skill_match,
-        'education_match': education_match,
-        'english_match': english_match,
-        'spanish_match': spanish_match
-    }
-    
-    overall_score = sum(score * weights[category] for category, score in scores.items())
-    scores['overall_score'] = overall_score
-    
-    return scores
 
-def find_matching_candidates(vagas_df: pd.DataFrame, applicants_df: pd.DataFrame, vaga_id: str, 
-                            top_n: int = 10) -> pd.DataFrame:
-    """
-    Find the top N candidates matching a specific job.
-    
-    Args:
-        vagas_df: DataFrame with job vacancies
-        applicants_df: DataFrame with applicant data
-        vaga_id: ID of the job vacancy to match against
-        top_n: Number of top candidates to return
-    
-    Returns:
-        DataFrame with top matching candidates and their scores
-    """
-    # Get job data
-    job_data = vagas_df[vagas_df['vaga_id'] == vaga_id]
-    if job_data.empty:
-        return pd.DataFrame()
-    
-    job_series = job_data.iloc[0]
-    
-    # Calculate similarity for each candidate
-    results = []
-    
-    # Use a subset of candidates for better performance if the dataset is large
-    candidates_sample = applicants_df if len(applicants_df) < 1000 else applicants_df.sample(1000)
-    
-    for index, candidate in candidates_sample.iterrows():
-        candidate_dict = {}
-        # Convertendo pandas.Series para dict para evitar erros do tipo
-        if hasattr(candidate, 'to_dict'):
-            candidate_dict = candidate.to_dict()
-        else:
-            for col in applicants_df.columns:
-                candidate_dict[col] = candidate.get(col, '')
-                
-        similarity_scores = calculate_similarity(job_series, candidate)
-        
-        result = {
-            'codigo': candidate_dict.get('codigo_profissional', ''),
-            'nome': candidate_dict.get('nome', ''),
-            'area_atuacao': candidate_dict.get('area_atuacao', ''),
-            'nivel_academico': candidate_dict.get('nivel_academic', ''),
-            'nivel_ingles': candidate_dict.get('nivel_ingles', ''),
-            'nivel_espanhol': candidate_dict.get('nivel_espanhol', ''),
-            'overall_score': similarity_scores['overall_score'],
-            'text_similarity': similarity_scores['text_similarity'],
-            'skill_match': similarity_scores['skill_match'],
-            'education_match': similarity_scores['education_match'],
-            'english_match': similarity_scores['english_match'],
-            'spanish_match': similarity_scores['spanish_match']
-        }
-        results.append(result)
-    
-    # Create DataFrame and sort by overall score
-    results_df = pd.DataFrame(results) if results else pd.DataFrame()
-    
-    if not results_df.empty:
-        results_df = results_df.sort_values('overall_score', ascending=False)
-        if top_n > 0:
-            results_df = results_df.head(top_n)
-    
-    return results_df
+# Download prospects
+if not prospects_df.empty:
+    csv_prospects = prospects_df.to_csv(index=False)
+    st.sidebar.download_button(
+        label="Baixar Prospectos (CSV)",
+        data=csv_prospects,
+        file_name="prospects_data.csv",
+        mime="text/csv"
+    )
 
-def get_candidates_by_vaga(vagas_df: pd.DataFrame, prospects_df: pd.DataFrame, applicants_df: pd.DataFrame, 
-                          vaga_id: str, include_scores: bool = True) -> pd.DataFrame:
+st.sidebar.markdown("---")
+st.sidebar.markdown("Desenvolvido para Decision/FIAP | © 2025")
+
+# Rodapé com nomes da equipe alinhado à direita
+st.markdown(
     """
-    Get all candidates who have applied for a specific job vacancy with similarity scores.
-    
-    Args:
-        vagas_df: DataFrame with job vacancies
-        prospects_df: DataFrame with prospect data
-        applicants_df: DataFrame with applicant data
-        vaga_id: ID of the job vacancy to get candidates for
-        include_scores: Whether to include similarity scores
-    
-    Returns:
-        DataFrame with candidates and their information
-    """
-    # Get job data
-    job_data = vagas_df[vagas_df['vaga_id'] == vaga_id]
-    if job_data.empty:
-        return pd.DataFrame()
-    
-    job_series = job_data.iloc[0]
-    
-    # Get prospects for this job
-    job_prospects = prospects_df[prospects_df['vaga_id'] == vaga_id]
-    
-    if job_prospects.empty:
-        return pd.DataFrame()
-    
-    # Get candidate codes and convert to list (avoiding .unique() on series)
-    # This é uma alternativa ao .unique() para evitar erros de tipo
-    prospect_codes = list(set(job_prospects['codigo'].tolist()))
-    
-    # Get candidate information
-    results = []
-    for code in prospect_codes:
-        # Find candidate in applicants data
-        candidate_data = applicants_df[applicants_df['codigo_profissional'] == code]
-        if candidate_data.empty:
-            # If candidate not found in applicants data, use prospect data
-            prospect_matches = job_prospects[job_prospects['codigo'] == code]
-            if prospect_matches.empty:
-                continue
-                
-            prospect_data = prospect_matches.iloc[0]
-            prospect_dict = prospect_data.to_dict() if hasattr(prospect_data, 'to_dict') else {}
-                
-            candidate = {
-                'codigo': code,
-                'nome': prospect_dict.get('nome', ''),
-                'area_atuacao': '',
-                'situacao': prospect_dict.get('situacao_candidado', ''),
-                'data_candidatura': prospect_dict.get('data_candidatura', ''),
-                'recrutador': prospect_dict.get('recrutador', '')
-            }
-            
-            if include_scores:
-                candidate.update({
-                    'overall_score': 0,
-                    'text_similarity': 0,
-                    'skill_match': 0,
-                    'education_match': 0,
-                    'english_match': 0,
-                    'spanish_match': 0
-                })
-        else:
-            # Use applicant data
-            candidate_series = candidate_data.iloc[0]
-            prospect_matches = job_prospects[job_prospects['codigo'] == code]
-            if prospect_matches.empty:
-                continue
-                
-            prospect_data = prospect_matches.iloc[0]
-            candidate_dict = candidate_series.to_dict() if hasattr(candidate_series, 'to_dict') else {}
-            prospect_dict = prospect_data.to_dict() if hasattr(prospect_data, 'to_dict') else {}
-            
-            candidate = {
-                'codigo': code,
-                'nome': candidate_dict.get('nome', ''),
-                'area_atuacao': candidate_dict.get('area_atuacao', ''),
-                'nivel_academico': candidate_dict.get('nivel_academic', ''),
-                'nivel_ingles': candidate_dict.get('nivel_ingles', ''),
-                'nivel_espanhol': candidate_dict.get('nivel_espanhol', ''),
-                'situacao': prospect_dict.get('situacao_candidado', ''),
-                'data_candidatura': prospect_dict.get('data_candidatura', ''),
-                'recrutador': prospect_dict.get('recrutador', '')
-            }
-            
-            if include_scores:
-                # Calculate similarity scores
-                similarity_scores = calculate_similarity(job_series, candidate_series)
-                candidate.update({
-                    'overall_score': similarity_scores['overall_score'],
-                    'text_similarity': similarity_scores['text_similarity'],
-                    'skill_match': similarity_scores['skill_match'],
-                    'education_match': similarity_scores['education_match'],
-                    'english_match': similarity_scores['english_match'],
-                    'spanish_match': similarity_scores['spanish_match']
-                })
-        
-        results.append(candidate)
-    
-    # Create DataFrame and sort by status and score if scores included
-    results_df = pd.DataFrame(results) if results else pd.DataFrame()
-    
-    if not results_df.empty:
-        if include_scores and 'overall_score' in results_df.columns:
-            results_df = results_df.sort_values(['situacao', 'overall_score'], ascending=[True, False])
-    
-    return results_df
+    <div style="position: fixed; bottom: 10px; right: 20px; text-align: right; font-size: 14px;">
+        <b>Grupo 9 | 6DTAT:</b><br>
+        Francisco das Chagas Alcântara Júnior – RM 357554<br>
+        Geovana Façanha da Silva – RM357215<br>
+        Luciana Conceição Ferreira – RM357220
+    </div>
+    """,
+    unsafe_allow_html=True
+)
